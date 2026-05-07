@@ -1,0 +1,195 @@
+service: consulta-pe
+
+plugins:
+  - serverless-offline
+
+provider:
+  name: aws
+  profile: ${opt:aws-profile, env:AWS_PROFILE, 'default'}
+  runtime: nodejs20.x
+  region: us-east-1
+  memorySize: 1536
+  timeout: 30
+  environment:
+    CACHE_TABLE_NAME: ${self:service}-cache-${sls:stage}
+    REFRESH_QUEUE_URL: !Ref RefreshQueue
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+          Resource: !GetAtt CacheTable.Arn
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+          Resource: !GetAtt RefreshQueue.Arn
+
+package:
+  patterns:
+    - '!src/**'
+    - '!.git/**'
+    - '!test/**'
+    - '!README.md'
+    - '!node_modules/@nestjs/cli/**'
+    - '!node_modules/@nestjs/schematics/**'
+    - '!node_modules/typescript/**'
+    - '!node_modules/ts-node/**'
+    - '!node_modules/ts-loader/**'
+    - '!node_modules/serverless-offline/**'
+    - '!node_modules/@types/**'
+    - '!node_modules/.cache/**'
+    - '!node_modules/terser-webpack-plugin/**'
+    - '!node_modules/@sparticuz/chromium/**'
+
+layers:
+  chromium:
+    path: layer-chromium
+    name: consulta-pe-chromium
+    description: Chromium for Playwright on Lambda
+    compatibleRuntimes:
+      - nodejs20.x
+    retain: false
+
+functions:
+  main:
+    handler: dist/main.handler
+    layers:
+      - !Ref ChromiumLambdaLayer
+    environment:
+      CHROMIUM_LAYER: '1'
+    events:
+      - http:
+          method: ANY
+          path: /
+      - http:
+          method: ANY
+          path: '{proxy+}'
+
+  refreshWorker:
+    handler: dist/worker.handler
+    layers:
+      - !Ref ChromiumLambdaLayer
+    environment:
+      CHROMIUM_LAYER: '1'
+    events:
+      - sqs:
+          arn: !GetAtt RefreshQueue.Arn
+          batchSize: 1
+          functionResponseType: ReportBatchItemFailures
+
+resources:
+  Resources:
+    CacheTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-cache-${sls:stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+    RefreshQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-refresh-${sls:stage}
+        VisibilityTimeout: 60
+        MessageRetentionPeriod: 86400
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt RefreshDLQ.Arn
+          maxReceiveCount: 3
+
+    RefreshDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-refresh-dlq-${sls:stage}
+        MessageRetentionPeriod: 1209600
+
+    AlarmsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-alarms-${sls:stage}
+        DisplayName: consulta-pe alarms
+
+    AlarmsEmailSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref AlarmsTopic
+        Protocol: email
+        Endpoint: ${self:custom.alarmEmail}
+
+    MainLambdaErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-main-errors
+        AlarmDescription: Errors in the main API Lambda
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref MainLambdaFunction
+        Statistic: Sum
+        Period: 60
+        EvaluationPeriods: 1
+        DatapointsToAlarm: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref AlarmsTopic
+
+    WorkerLambdaErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-refreshWorker-errors
+        AlarmDescription: Errors in the SQS refresh worker Lambda
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: !Ref RefreshWorkerLambdaFunction
+        Statistic: Sum
+        Period: 60
+        EvaluationPeriods: 1
+        DatapointsToAlarm: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref AlarmsTopic
+
+    RefreshDLQAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-refresh-dlq
+        AlarmDescription: Messages landed in the refresh DLQ
+        Namespace: AWS/SQS
+        MetricName: ApproximateNumberOfMessagesVisible
+        Dimensions:
+          - Name: QueueName
+            Value: !GetAtt RefreshDLQ.QueueName
+        Statistic: Maximum
+        Period: 60
+        EvaluationPeriods: 1
+        DatapointsToAlarm: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref AlarmsTopic
+
+custom:
+  alarmEmail: ${env:ALARM_EMAIL, 'cuevacelis@gmail.com'}
+  serverless-offline:
+    httpPort: 3001
+    lambdaPort: 3002

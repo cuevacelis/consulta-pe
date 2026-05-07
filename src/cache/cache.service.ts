@@ -1,0 +1,69 @@
+import { Injectable, Logger } from "@nestjs/common";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+} from "@aws-sdk/lib-dynamodb";
+
+export type CacheKind = "DNI" | "RUC";
+
+export interface CacheItem<T> {
+  pk: string;
+  kind: CacheKind;
+  id: string;
+  data: T;
+  updatedAt: string;
+  ttl: number;
+}
+
+const REGION = process.env.AWS_REGION ?? "us-east-1";
+const TABLE = process.env.CACHE_TABLE_NAME ?? "consulta-pe-cache";
+const TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year
+
+@Injectable()
+export class CacheService {
+  private readonly logger = new Logger(CacheService.name);
+  private readonly doc = DynamoDBDocumentClient.from(
+    new DynamoDBClient({ region: REGION }),
+    { marshallOptions: { removeUndefinedValues: true } },
+  );
+
+  private buildPk(kind: CacheKind, id: string) {
+    return `${kind}#${id}`;
+  }
+
+  async get<T>(kind: CacheKind, id: string): Promise<CacheItem<T> | null> {
+    try {
+      const out = await this.doc.send(
+        new GetCommand({
+          TableName: TABLE,
+          Key: { pk: this.buildPk(kind, id) },
+        }),
+      );
+      return (out.Item as CacheItem<T> | undefined) ?? null;
+    } catch (err) {
+      this.logger.warn(`cache.get failed for ${kind}#${id}: ${err}`);
+      return null;
+    }
+  }
+
+  async put<T>(kind: CacheKind, id: string, data: T): Promise<void> {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const item: CacheItem<T> = {
+      pk: this.buildPk(kind, id),
+      kind,
+      id,
+      data,
+      updatedAt: new Date().toISOString(),
+      ttl: nowSec + TTL_SECONDS,
+    };
+    try {
+      await this.doc.send(
+        new PutCommand({ TableName: TABLE, Item: item }),
+      );
+    } catch (err) {
+      this.logger.warn(`cache.put failed for ${kind}#${id}: ${err}`);
+    }
+  }
+}
