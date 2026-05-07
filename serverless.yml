@@ -3,13 +3,36 @@ service: consulta-pe
 plugins:
   - serverless-offline
 
+build:
+  esbuild:
+    bundle: true
+    minify: true
+    sourcemap: true
+    target: node20
+    # Externals: no se inlinean (require() en runtime).
+    # En esbuild v4 built-in, los externals NO listados en `exclude` se
+    # copian al zip via node_modules; los listados en `exclude` no se copian.
+    external:
+      - '@sparticuz/chromium'    # vive en el layer
+      - 'playwright-core'         # native-ish, se copia
+      - '@nestjs/microservices'   # opcional NestJS, no instalado
+      - '@nestjs/websockets'
+      - '@fastify/static'
+      - 'cache-manager'
+    exclude:
+      - '@sparticuz/chromium'
+      - '@nestjs/microservices'
+      - '@nestjs/websockets'
+      - '@fastify/static'
+      - 'cache-manager'
+
 provider:
   name: aws
   profile: ${opt:aws-profile, env:AWS_PROFILE, 'default'}
   runtime: nodejs20.x
   region: us-east-1
   memorySize: 1536
-  timeout: 30
+  timeout: 29
   environment:
     CACHE_TABLE_NAME: ${self:service}-cache-${sls:stage}
     REFRESH_QUEUE_URL: !Ref RefreshQueue
@@ -29,23 +52,6 @@ provider:
             - sqs:GetQueueAttributes
           Resource: !GetAtt RefreshQueue.Arn
 
-package:
-  patterns:
-    - '!src/**'
-    - '!.git/**'
-    - '!test/**'
-    - '!README.md'
-    - '!node_modules/@nestjs/cli/**'
-    - '!node_modules/@nestjs/schematics/**'
-    - '!node_modules/typescript/**'
-    - '!node_modules/ts-node/**'
-    - '!node_modules/ts-loader/**'
-    - '!node_modules/serverless-offline/**'
-    - '!node_modules/@types/**'
-    - '!node_modules/.cache/**'
-    - '!node_modules/terser-webpack-plugin/**'
-    - '!node_modules/@sparticuz/chromium/**'
-
 layers:
   chromium:
     path: layer-chromium
@@ -57,7 +63,7 @@ layers:
 
 functions:
   main:
-    handler: dist/main.handler
+    handler: src/main.handler
     layers:
       - !Ref ChromiumLambdaLayer
     environment:
@@ -71,7 +77,8 @@ functions:
           path: '{proxy+}'
 
   refreshWorker:
-    handler: dist/worker.handler
+    handler: src/worker.handler
+    timeout: 60
     layers:
       - !Ref ChromiumLambdaLayer
     environment:
@@ -103,7 +110,9 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: ${self:service}-refresh-${sls:stage}
-        VisibilityTimeout: 60
+        # AWS recomienda VisibilityTimeout >= 6x el timeout de la Lambda consumidora.
+        # Worker tiene timeout 60s -> 360s.
+        VisibilityTimeout: 360
         MessageRetentionPeriod: 86400
         RedrivePolicy:
           deadLetterTargetArn: !GetAtt RefreshDLQ.Arn
