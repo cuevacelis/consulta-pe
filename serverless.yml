@@ -1,17 +1,24 @@
 service: consulta-pe
 
 plugins:
+  - serverless-esbuild
   - serverless-offline
 
+# El esbuild integrado de v4 no emite `emitDecoratorMetadata`, así que lo
+# desactivamos y usamos el plugin serverless-esbuild con @anatine/esbuild-decorators
+# para generar el metadata que NestJS necesita para inyección de dependencias.
 build:
+  esbuild: false
+
+custom:
   esbuild:
     bundle: true
     minify: true
     sourcemap: true
     target: node20
-    # Externals: no se inlinean (require() en runtime).
-    # En esbuild v4 built-in, los externals NO listados en `exclude` se
-    # copian al zip via node_modules; los listados en `exclude` no se copian.
+    platform: node
+    keepNames: true
+    plugins: esbuild-plugins.js
     external:
       - '@sparticuz/chromium'    # vive en el layer
       - 'playwright-core'         # native-ish, se copia
@@ -25,6 +32,13 @@ build:
       - '@nestjs/websockets'
       - '@fastify/static'
       - 'cache-manager'
+  alarmEmail: ${env:ALARM_EMAIL, 'cuevacelis@gmail.com'}
+  serverless-offline:
+    httpPort: 3001
+    lambdaPort: 3002
+
+package:
+  individually: true
 
 provider:
   name: aws
@@ -64,10 +78,6 @@ layers:
 functions:
   main:
     handler: src/main.handler
-    layers:
-      - !Ref ChromiumLambdaLayer
-    environment:
-      CHROMIUM_LAYER: '1'
     events:
       - http:
           method: ANY
@@ -196,9 +206,3 @@ resources:
         TreatMissingData: notBreaching
         AlarmActions:
           - !Ref AlarmsTopic
-
-custom:
-  alarmEmail: ${env:ALARM_EMAIL, 'cuevacelis@gmail.com'}
-  serverless-offline:
-    httpPort: 3001
-    lambdaPort: 3002

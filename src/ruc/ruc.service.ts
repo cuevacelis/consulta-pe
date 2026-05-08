@@ -1,16 +1,16 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { SunatScraperService, RucData } from "../sunat/sunat-scraper.service";
+import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { RucData } from "../sunat/sunat-scraper.types";
 import { CacheService } from "../cache/cache.service";
 import { RefreshQueueService } from "../cache/refresh-queue.service";
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000; // 24h
+const MISS_WAIT_TIMEOUT_MS = 25_000;
 
 @Injectable()
 export class RucService {
   private readonly logger = new Logger(RucService.name);
 
   constructor(
-    private readonly sunat: SunatScraperService,
     private readonly cache: CacheService,
     private readonly refreshQueue: RefreshQueueService,
   ) {}
@@ -26,8 +26,18 @@ export class RucService {
       return cached.data;
     }
 
-    const fresh = await this.sunat.consultarRuc(ruc);
-    await this.cache.put<RucData>("RUC", ruc, fresh);
-    return fresh;
+    await this.refreshQueue.enqueue({ kind: "RUC", id: ruc });
+    const filled = await this.cache.waitFor<RucData>(
+      "RUC",
+      ruc,
+      MISS_WAIT_TIMEOUT_MS,
+    );
+    if (filled) return filled.data;
+
+    this.logger.warn(`RUC ${ruc}: scrape did not complete within timeout`);
+    throw new HttpException(
+      `Tiempo de espera agotado consultando RUC ${ruc}, reintenta en unos segundos.`,
+      HttpStatus.GATEWAY_TIMEOUT,
+    );
   }
 }

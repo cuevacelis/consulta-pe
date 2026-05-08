@@ -48,6 +48,27 @@ export class CacheService {
     }
   }
 
+  async waitFor<T>(
+    kind: CacheKind,
+    id: string,
+    timeoutMs: number,
+    intervalMs = 500,
+    initialDelayMs = 1000,
+  ): Promise<CacheItem<T> | null> {
+    const deadline = Date.now() + timeoutMs;
+    if (initialDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, initialDelayMs));
+    }
+    while (Date.now() < deadline) {
+      const cached = await this.get<T>(kind, id);
+      if (cached) return cached;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise((r) => setTimeout(r, Math.min(intervalMs, remaining)));
+    }
+    return null;
+  }
+
   async put<T>(kind: CacheKind, id: string, data: T): Promise<void> {
     const nowSec = Math.floor(Date.now() / 1000);
     const item: CacheItem<T> = {

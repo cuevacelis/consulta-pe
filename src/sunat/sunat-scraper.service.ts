@@ -1,31 +1,12 @@
 import { Injectable, HttpException, HttpStatus } from "@nestjs/common";
 import { chromium as playwrightChromium } from "playwright-core";
 import * as cheerio from "cheerio";
+import { DniData, RucData } from "./sunat-scraper.types";
+
+export { DniData, RucData };
 
 const SUNAT_URL =
   "https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp";
-
-export interface RucData {
-  ruc: string;
-  razon_social: string | null;
-  tipo_contribuyente: string | null;
-  nombre_comercial: string | null;
-  estado: string | null;
-  condicion: string | null;
-  direccion: string | null;
-  departamento: string | null;
-  provincia: string | null;
-  distrito: string | null;
-  actividades_economicas: string[];
-}
-
-export interface DniData {
-  dni: string;
-  nombre_completo: string | null;
-  ruc: string | null;
-  estado: string | null;
-  condicion: string | null;
-}
 
 const STEALTH_ARGS = [
   "--disable-blink-features=AutomationControlled",

@@ -1,7 +1,7 @@
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { SQSEvent, SQSBatchResponse, SQSBatchItemFailure } from "aws-lambda";
-import { AppModule } from "./app.module";
+import { WorkerModule } from "./worker.module";
 import { SunatScraperService } from "./sunat/sunat-scraper.service";
 import { CacheService } from "./cache/cache.service";
 import { RefreshMessage } from "./cache/refresh-queue.service";
@@ -13,7 +13,7 @@ let sunat: SunatScraperService | null = null;
 
 async function bootstrap() {
   if (cache && sunat) return;
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  const app = await NestFactory.createApplicationContext(WorkerModule, {
     logger: ["error", "warn"],
   });
   cache = app.get(CacheService);
