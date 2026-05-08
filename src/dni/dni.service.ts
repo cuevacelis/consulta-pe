@@ -23,7 +23,13 @@ export class DniService {
       if (ageMs > STALE_AFTER_MS) {
         this.refreshQueue.enqueue({ kind: "DNI", id: dni }).catch(() => {});
       }
-      return cached.data;
+      if (cached.status === "not_found") {
+        throw new HttpException(
+          `DNI ${dni} no registrado en SUNAT`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return cached.data!;
     }
 
     await this.refreshQueue.enqueue({ kind: "DNI", id: dni });
@@ -32,7 +38,15 @@ export class DniService {
       dni,
       MISS_WAIT_TIMEOUT_MS,
     );
-    if (filled) return filled.data;
+    if (filled) {
+      if (filled.status === "not_found") {
+        throw new HttpException(
+          `DNI ${dni} no registrado en SUNAT`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return filled.data!;
+    }
 
     this.logger.warn(`DNI ${dni}: scrape did not complete within timeout`);
     throw new HttpException(

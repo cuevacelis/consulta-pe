@@ -23,7 +23,13 @@ export class RucService {
       if (ageMs > STALE_AFTER_MS) {
         this.refreshQueue.enqueue({ kind: "RUC", id: ruc }).catch(() => {});
       }
-      return cached.data;
+      if (cached.status === "not_found") {
+        throw new HttpException(
+          `RUC ${ruc} no registrado en SUNAT`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return cached.data!;
     }
 
     await this.refreshQueue.enqueue({ kind: "RUC", id: ruc });
@@ -32,7 +38,15 @@ export class RucService {
       ruc,
       MISS_WAIT_TIMEOUT_MS,
     );
-    if (filled) return filled.data;
+    if (filled) {
+      if (filled.status === "not_found") {
+        throw new HttpException(
+          `RUC ${ruc} no registrado en SUNAT`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return filled.data!;
+    }
 
     this.logger.warn(`RUC ${ruc}: scrape did not complete within timeout`);
     throw new HttpException(

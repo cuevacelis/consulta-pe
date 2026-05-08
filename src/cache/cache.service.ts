@@ -7,12 +7,14 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 export type CacheKind = "DNI" | "RUC";
+export type CacheStatus = "found" | "not_found";
 
 export interface CacheItem<T> {
   pk: string;
   kind: CacheKind;
   id: string;
-  data: T;
+  status: CacheStatus;
+  data?: T;
   updatedAt: string;
   ttl: number;
 }
@@ -41,10 +43,47 @@ export class CacheService {
           Key: { pk: this.buildPk(kind, id) },
         }),
       );
-      return (out.Item as CacheItem<T> | undefined) ?? null;
+      if (!out.Item) return null;
+      const item = out.Item as CacheItem<T>;
+      // Back-compat: legacy items written before status existed are "found".
+      if (!item.status) item.status = "found";
+      return item;
     } catch (err) {
       this.logger.warn(`cache.get failed for ${kind}#${id}: ${err}`);
       return null;
+    }
+  }
+
+  async put<T>(kind: CacheKind, id: string, data: T): Promise<void> {
+    const item: CacheItem<T> = {
+      pk: this.buildPk(kind, id),
+      kind,
+      id,
+      status: "found",
+      data,
+      updatedAt: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + TTL_SECONDS,
+    };
+    await this.write(item);
+  }
+
+  async putNotFound(kind: CacheKind, id: string): Promise<void> {
+    const item: CacheItem<never> = {
+      pk: this.buildPk(kind, id),
+      kind,
+      id,
+      status: "not_found",
+      updatedAt: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + TTL_SECONDS,
+    };
+    await this.write(item);
+  }
+
+  private async write(item: CacheItem<unknown>): Promise<void> {
+    try {
+      await this.doc.send(new PutCommand({ TableName: TABLE, Item: item }));
+    } catch (err) {
+      this.logger.warn(`cache.put failed for ${item.pk}: ${err}`);
     }
   }
 
@@ -67,24 +106,5 @@ export class CacheService {
       await new Promise((r) => setTimeout(r, Math.min(intervalMs, remaining)));
     }
     return null;
-  }
-
-  async put<T>(kind: CacheKind, id: string, data: T): Promise<void> {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const item: CacheItem<T> = {
-      pk: this.buildPk(kind, id),
-      kind,
-      id,
-      data,
-      updatedAt: new Date().toISOString(),
-      ttl: nowSec + TTL_SECONDS,
-    };
-    try {
-      await this.doc.send(
-        new PutCommand({ TableName: TABLE, Item: item }),
-      );
-    } catch (err) {
-      this.logger.warn(`cache.put failed for ${kind}#${id}: ${err}`);
-    }
   }
 }

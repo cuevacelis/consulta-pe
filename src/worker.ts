@@ -24,18 +24,26 @@ async function refreshOne(msg: RefreshMessage): Promise<void> {
   if (!cache || !sunat) throw new Error("worker not bootstrapped");
   if (msg.kind === "DNI") {
     const data = await sunat.consultarDni(msg.id);
-    await cache.put("DNI", msg.id, data);
+    if (data) {
+      await cache.put("DNI", msg.id, data);
+    } else {
+      logger.log(`DNI ${msg.id} no encontrado en SUNAT, cacheando not_found`);
+      await cache.putNotFound("DNI", msg.id);
+    }
   } else if (msg.kind === "RUC") {
     const data = await sunat.consultarRuc(msg.id);
-    await cache.put("RUC", msg.id, data);
+    if (data) {
+      await cache.put("RUC", msg.id, data);
+    } else {
+      logger.log(`RUC ${msg.id} no encontrado en SUNAT, cacheando not_found`);
+      await cache.putNotFound("RUC", msg.id);
+    }
   } else {
     throw new Error(`unknown kind: ${(msg as any).kind}`);
   }
 }
 
-export const handler = async (
-  event: SQSEvent,
-): Promise<SQSBatchResponse> => {
+export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   await bootstrap();
   const batchItemFailures: SQSBatchItemFailure[] = [];
 
@@ -44,9 +52,7 @@ export const handler = async (
       const msg = JSON.parse(record.body) as RefreshMessage;
       await refreshOne(msg);
     } catch (err) {
-      logger.error(
-        `refresh failed for messageId=${record.messageId}: ${err}`,
-      );
+      logger.error(`refresh failed for messageId=${record.messageId}: ${err}`);
       batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
