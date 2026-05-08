@@ -29,6 +29,12 @@ export class DniService {
           HttpStatus.NOT_FOUND,
         );
       }
+      if (cached.status === "unavailable") {
+        throw new HttpException(
+          `SUNAT no disponible, reintenta en unos minutos.`,
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
       return cached.data!;
     }
 
@@ -43,6 +49,12 @@ export class DniService {
         throw new HttpException(
           `DNI ${dni} no registrado en SUNAT`,
           HttpStatus.NOT_FOUND,
+        );
+      }
+      if (filled.status === "unavailable") {
+        throw new HttpException(
+          `SUNAT no disponible, reintenta en unos minutos.`,
+          HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
       return filled.data!;

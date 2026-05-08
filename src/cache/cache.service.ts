@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 export type CacheKind = "DNI" | "RUC";
-export type CacheStatus = "found" | "not_found";
+export type CacheStatus = "found" | "not_found" | "unavailable";
 
 export interface CacheItem<T> {
   pk: string;
@@ -22,6 +22,7 @@ export interface CacheItem<T> {
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const TABLE = process.env.CACHE_TABLE_NAME ?? "consulta-pe-cache";
 const TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year
+const TTL_UNAVAILABLE_SECONDS = 5 * 60; // 5 min
 
 @Injectable()
 export class CacheService {
@@ -63,6 +64,18 @@ export class CacheService {
       data,
       updatedAt: new Date().toISOString(),
       ttl: Math.floor(Date.now() / 1000) + TTL_SECONDS,
+    };
+    await this.write(item);
+  }
+
+  async putUnavailable(kind: CacheKind, id: string): Promise<void> {
+    const item: CacheItem<never> = {
+      pk: this.buildPk(kind, id),
+      kind,
+      id,
+      status: "unavailable",
+      updatedAt: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + TTL_UNAVAILABLE_SECONDS,
     };
     await this.write(item);
   }

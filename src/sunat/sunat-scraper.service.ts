@@ -5,6 +5,13 @@ import { ContribuyentePanel, DniData, RucData } from "./sunat-scraper.types";
 
 export { DniData, RucData };
 
+export class SunatUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SunatUnavailableError";
+  }
+}
+
 const SUNAT_URL =
   "https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/FrameCriterioBusquedaWeb.jsp";
 
@@ -206,6 +213,11 @@ export class SunatScraperService {
     });
     try {
       return await action(page);
+    } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        throw new SunatUnavailableError(`SUNAT no disponible: ${err.message}`);
+      }
+      throw err;
     } finally {
       await context.close();
       await browser.close();
@@ -214,7 +226,7 @@ export class SunatScraperService {
 
   async consultarRuc(ruc: string): Promise<RucData | null> {
     const outcome = await this.scrape(async (page: any) => {
-      await page.goto(SUNAT_URL, { waitUntil: "networkidle" });
+      await page.goto(SUNAT_URL, { waitUntil: "domcontentloaded" });
       await page.fill("#txtRuc", ruc);
       await page.click("#btnAceptar");
       await page
@@ -250,7 +262,7 @@ export class SunatScraperService {
 
   async consultarDni(dni: string): Promise<DniData | null> {
     const outcome = await this.scrape(async (page: any) => {
-      await page.goto(SUNAT_URL, { waitUntil: "networkidle" });
+      await page.goto(SUNAT_URL, { waitUntil: "domcontentloaded" });
       await page.click("#btnPorDocumento");
       await page.waitForSelector("#txtNumeroDocumento", { state: "visible" });
       await page.selectOption("#cmbTipoDoc", "1"); // DNI

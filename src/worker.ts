@@ -2,7 +2,7 @@ import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
 import { SQSEvent, SQSBatchResponse, SQSBatchItemFailure } from "aws-lambda";
 import { WorkerModule } from "./worker.module";
-import { SunatScraperService } from "./sunat/sunat-scraper.service";
+import { SunatScraperService, SunatUnavailableError } from "./sunat/sunat-scraper.service";
 import { CacheService } from "./cache/cache.service";
 import { RefreshMessage } from "./cache/refresh-queue.service";
 
@@ -48,12 +48,19 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const batchItemFailures: SQSBatchItemFailure[] = [];
 
   for (const record of event.Records) {
+    let msg: RefreshMessage | undefined;
     try {
-      const msg = JSON.parse(record.body) as RefreshMessage;
+      msg = JSON.parse(record.body) as RefreshMessage;
+      logger.log(`processing messageId=${record.messageId} kind=${msg.kind} id=${msg.id}`);
       await refreshOne(msg);
     } catch (err) {
-      logger.error(`refresh failed for messageId=${record.messageId}: ${err}`);
-      batchItemFailures.push({ itemIdentifier: record.messageId });
+      if (err instanceof SunatUnavailableError && msg) {
+        logger.warn(`SUNAT unavailable messageId=${record.messageId} kind=${msg.kind} id=${msg.id}: ${err.message}`);
+        await cache!.putUnavailable(msg.kind, msg.id);
+      } else {
+        logger.error(`refresh failed for messageId=${record.messageId}: ${err}`);
+        batchItemFailures.push({ itemIdentifier: record.messageId });
+      }
     }
   }
 

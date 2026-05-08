@@ -29,6 +29,12 @@ export class RucService {
           HttpStatus.NOT_FOUND,
         );
       }
+      if (cached.status === "unavailable") {
+        throw new HttpException(
+          `SUNAT no disponible, reintenta en unos minutos.`,
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
       return cached.data!;
     }
 
@@ -43,6 +49,12 @@ export class RucService {
         throw new HttpException(
           `RUC ${ruc} no registrado en SUNAT`,
           HttpStatus.NOT_FOUND,
+        );
+      }
+      if (filled.status === "unavailable") {
+        throw new HttpException(
+          `SUNAT no disponible, reintenta en unos minutos.`,
+          HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
       return filled.data!;
