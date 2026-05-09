@@ -25,11 +25,8 @@ export class RefreshQueueService {
         new SendMessageCommand({
           QueueUrl: QUEUE_URL,
           MessageBody: JSON.stringify(message),
-          // Group identical refresh requests within a short window via dedup id
-          MessageAttributes: {
-            kind: { DataType: "String", StringValue: message.kind },
-            id: { DataType: "String", StringValue: message.id },
-          },
+          MessageGroupId: `${message.kind}#${message.id}`,
+          MessageDeduplicationId: `${message.kind}#${message.id}`,
         }),
       );
     } catch (err) {

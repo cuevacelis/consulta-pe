@@ -119,7 +119,9 @@ resources:
     RefreshQueue:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:service}-refresh-${sls:stage}
+        QueueName: ${self:service}-refresh-${sls:stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: false
         # AWS recomienda VisibilityTimeout >= 6x el timeout de la Lambda consumidora.
         # Worker tiene timeout 60s -> 360s.
         VisibilityTimeout: 360
@@ -131,7 +133,8 @@ resources:
     RefreshDLQ:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:service}-refresh-dlq-${sls:stage}
+        QueueName: ${self:service}-refresh-dlq-${sls:stage}.fifo
+        FifoQueue: true
         MessageRetentionPeriod: 1209600
 
     AlarmsTopic:
